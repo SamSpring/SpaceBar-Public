@@ -38,6 +38,10 @@ const demo = document.querySelector("#menu-demo");
 const demoToggle = document.querySelector("#demo-toggle");
 if (demo && demoToggle) {
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+  let userPaused = false;
+  demo.muted = true;
+  demo.defaultMuted = true;
+  demo.autoplay = !reducedMotion.matches;
   demo.controls = false;
   demoToggle.hidden = false;
   const updateDemoButton = () => {
@@ -45,12 +49,20 @@ if (demo && demoToggle) {
   };
   demo.addEventListener("play", updateDemoButton);
   demo.addEventListener("pause", updateDemoButton);
+  const startAutomatically = () => {
+    if (!userPaused && !reducedMotion.matches) demo.play().catch(updateDemoButton);
+  };
+  demo.addEventListener("canplay", startAutomatically, { once: true });
   demoToggle.addEventListener("click", () => {
-    if (demo.paused) demo.play().catch(updateDemoButton);
-    else demo.pause();
+    userPaused = !demo.paused;
+    demo.autoplay = !userPaused && !reducedMotion.matches;
+    if (userPaused) demo.pause();
+    else demo.play().catch(updateDemoButton);
   });
   reducedMotion.addEventListener("change", () => {
+    demo.autoplay = !userPaused && !reducedMotion.matches;
     if (reducedMotion.matches) demo.pause();
+    else startAutomatically();
   });
-  if (!reducedMotion.matches) demo.play().catch(updateDemoButton);
+  startAutomatically();
 }
