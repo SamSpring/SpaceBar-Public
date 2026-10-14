@@ -4,12 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="SpaceBar adds blank spacers, subtle dividers, and a flexible gap to your Mac’s menu bar. Free, native, and open source.">
-  <meta name="theme-color" content="#ffffff">
-  <meta name="color-scheme" content="only light">
+  <meta name="theme-color" content="#000000">
+  <meta name="color-scheme" content="only dark">
   <meta name="darkreader-lock">
   <title>SpaceBar — A calmer menu bar</title>
   <link rel="icon" href="assets/app-icon.png?v=22">
-  <link rel="stylesheet" href="styles.css?v=3">
+  <link rel="preload" href="assets/galaxy-background.png" as="image">
+  <link rel="stylesheet" href="styles.css?v=4">
   <script src="site.js" defer></script>
 </head>
 <body>
@@ -17,13 +18,13 @@
   <div class="page">
     <header>
       <a class="brand" href="./" aria-label="SpaceBar home"><img src="assets/app-icon.png?v=22" alt="" width="52" height="52"><span>SpaceBar</span></a>
-      <nav aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="https://ko-fi.com/samspring" target="_blank" rel="noopener noreferrer">Support on Ko-fi</a></nav>
+      <nav aria-label="Main navigation"><a href="https://ko-fi.com/samspring" target="_blank" rel="noopener noreferrer">Support on Ko-fi</a></nav>
     </header>
     <main id="main">
       <section class="hero" aria-labelledby="headline">
         <h1 id="headline">A little space.<br>A calmer menu bar.</h1>
         <p class="intro">Spacers, dividers, and a flexible gap for your Mac.</p>
-        <div class="actions"><a class="button" id="download" href="https://github.com/SamSpring/SpaceBar-Public/releases/download/v2.4.0/SpaceBar-2.4.0-arm64.zip">Download for Mac</a><a class="text-action" href="#how-it-works">How it works</a></div>
+        <div class="actions"><a class="button" id="download" href="https://github.com/SamSpring/SpaceBar-Public/releases/download/v2.4.0/SpaceBar-2.4.0-arm64.zip">Download for Mac</a></div>
         <p class="requirements">macOS 27 · Apple silicon · Free &amp; open source</p>
         <p id="release-status" class="release-status" tabindex="-1" role="status">SpaceBar 2.4.0 · Developer ID signed and notarized. <a href="https://github.com/SamSpring/SpaceBar-Public/releases/download/v2.4.0/SHA256SUMS.txt">Verify download</a></p>
         <figure><img class="menu-illustration" src="assets/menu-bar.svg" alt="Illustrated menu bar with two dividers and generous gaps between groups of generic status icons." width="1248" height="124"><figcaption>Illustration of menu bar spacing</figcaption></figure>
