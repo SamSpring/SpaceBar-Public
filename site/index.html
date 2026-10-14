@@ -10,8 +10,8 @@
   <title>SpaceBar — A calmer menu bar</title>
   <link rel="icon" href="assets/app-icon.png?v=22">
   <link rel="preload" href="assets/galaxy-background.png" as="image">
-  <link rel="stylesheet" href="styles.css?v=4">
-  <script src="site.js" defer></script>
+  <link rel="stylesheet" href="styles.css?v=5">
+  <script src="site.js?v=5" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -27,7 +27,10 @@
         <div class="actions"><a class="button" id="download" href="https://github.com/SamSpring/SpaceBar-Public/releases/download/v2.4.0/SpaceBar-2.4.0-arm64.zip">Download for Mac</a></div>
         <p class="requirements">macOS 27 · Apple silicon · Free &amp; open source</p>
         <p id="release-status" class="release-status" tabindex="-1" role="status">SpaceBar 2.4.0 · Developer ID signed and notarized. <a href="https://github.com/SamSpring/SpaceBar-Public/releases/download/v2.4.0/SHA256SUMS.txt">Verify download</a></p>
-        <figure><img class="menu-illustration" src="assets/menu-bar.svg" alt="Illustrated menu bar with two dividers and generous gaps between groups of generic status icons." width="1248" height="124"><figcaption>Illustration of menu bar spacing</figcaption></figure>
+        <figure class="demo">
+          <div class="demo-viewport"><video id="menu-demo" muted loop playsinline controls preload="metadata" poster="assets/spacebar-demo-poster.jpg" width="1920" height="62" aria-label="SpaceBar demo showing spacers and dividers in a real Mac menu bar"><source src="assets/spacebar-demo.mp4" type="video/mp4">Your browser does not support this video. <a href="assets/spacebar-demo.mp4">Watch the SpaceBar demo</a>.</video></div>
+          <figcaption><span>SpaceBar in action</span><button id="demo-toggle" type="button" hidden>Play demo</button><a href="assets/spacebar-demo.mp4" target="_blank" rel="noopener">View full demo</a></figcaption>
+        </figure>
       </section>
       <section class="features" id="how-it-works" aria-label="How SpaceBar works">
         <div><h2>Make room</h2><p>Add blank spacers and subtle dividers. Hold Command and drag them into place.</p></div>

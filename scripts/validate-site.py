@@ -26,7 +26,7 @@ if args.release or config['downloadUrl'] is not None:
 class LocalFiles(HTMLParser):
     def handle_starttag(self, tag, attrs):
         for key,value in attrs:
-            if key in ('href','src') and value and not value.startswith('#'):
+            if key in ('href','src','poster') and value and not value.startswith('#'):
                 url = urlsplit(value)
                 if url.scheme:
                     assert url.scheme == 'https', 'Only HTTPS external links are allowed'

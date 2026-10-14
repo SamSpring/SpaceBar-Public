@@ -33,3 +33,24 @@ fetch("release.json").then(response => {
 }).catch(() => {
   // The verified release links remain available without JavaScript/config.
 });
+
+const demo = document.querySelector("#menu-demo");
+const demoToggle = document.querySelector("#demo-toggle");
+if (demo && demoToggle) {
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+  demo.controls = false;
+  demoToggle.hidden = false;
+  const updateDemoButton = () => {
+    demoToggle.textContent = demo.paused ? "Play demo" : "Pause demo";
+  };
+  demo.addEventListener("play", updateDemoButton);
+  demo.addEventListener("pause", updateDemoButton);
+  demoToggle.addEventListener("click", () => {
+    if (demo.paused) demo.play().catch(updateDemoButton);
+    else demo.pause();
+  });
+  reducedMotion.addEventListener("change", () => {
+    if (reducedMotion.matches) demo.pause();
+  });
+  if (!reducedMotion.matches) demo.play().catch(updateDemoButton);
+}

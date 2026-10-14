@@ -13,3 +13,12 @@ h1,.intro,.requirements,.release-status,.features,.placement-note,footer{text-sh
 .release-status a,footer a{text-decoration:underline;text-underline-offset:4px;text-decoration-color:#ffffff70}
 .features{background:linear-gradient(#000a,#000e)}
 @media(max-width:600px){body::before{background-position:center top;background-size:auto 1150px;mask-image:linear-gradient(#000 85%,transparent 100%)}nav a{white-space:nowrap}}
+
+.demo-viewport{overflow:hidden;border:1px solid var(--rule);border-radius:12px;background:#070a10;box-shadow:0 12px 36px #0008}
+.demo video{display:block;width:100%;height:auto}
+.demo figcaption{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:12px 22px}
+.demo figcaption a{text-decoration:underline;text-underline-offset:4px}
+.demo button{border:1px solid #ffffff40;border-radius:7px;background:#090b10;color:var(--body);padding:7px 12px;font:inherit;font-size:15px;cursor:pointer}
+.demo button:hover{background:#22252b}.demo button:focus-visible{outline:3px solid var(--accent);outline-offset:4px}
+.demo button[hidden]{display:none}
+@media(max-width:600px){.demo figcaption{gap:10px 16px}.demo button{font-size:13px}}
