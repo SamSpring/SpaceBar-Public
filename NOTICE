@@ -1,0 +1,22 @@
+SpaceBar
+Copyright (c) 2026 Samuel Aviv
+Project publisher: Samuel Aviv / SamSpring
+
+The Swift source, tests, documentation, site, and approved app icon
+are distributed under the MIT License in LICENSE.
+
+The app icon is the approved project artwork in Resources/AppIconSource.png.
+scripts/generate-icon.swift resizes that master without changing its composition.
+The site's menu bar illustration is an original instructional SVG, not a screenshot of a user’s
+desktop. The generated website concept is private review material and is not
+part of the public export.
+
+Sparkle 2.10.0 provides secure native in-app updates under its own license and
+third-party notices, reproduced in Resources/Sparkle-LICENSE and the packaged
+app. It is the sole package dependency. Its source release is pinned to an immutable upstream commit; Swift Package
+Manager verifies the upstream binary checksum. No bundled fonts, stock photographs, or
+third-party app icons are included. Apple frameworks are supplied by macOS and
+are not redistributed. macOS, Swift, and Apple are trademarks of Apple Inc.
+
+Optional donations: https://ko-fi.com/samspring
+Donating does not unlock features or create a subscription.

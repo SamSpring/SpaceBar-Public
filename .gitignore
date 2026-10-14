@@ -1,0 +1,14 @@
+.build/
+.swiftpm/
+release-output/
+.DS_Store
+*.p12
+*.pfx
+*.key
+*.pem
+*.mobileprovision
+.env
+.env.*
+**/__pycache__/
+*.pyc
+Package.resolved
