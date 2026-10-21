@@ -11,7 +11,7 @@ download.addEventListener("click", (event) => {
 function githubRepo(value) {
   return typeof value === "string" && /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value);
 }
-fetch("release.json").then(response => {
+fetch("release.json", { cache: "no-store" }).then(response => {
   if (!response.ok) throw new Error("Release configuration unavailable");
   return response.json();
 }).then(release => {

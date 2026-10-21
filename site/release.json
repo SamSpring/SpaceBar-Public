@@ -1,10 +1,10 @@
 {
   "repositoryUrl": "https://github.com/SamSpring/SpaceBar-Public",
-  "downloadUrl": "https://github.com/SamSpring/SpaceBar-Public/releases/download/v2.4.0/SpaceBar-2.4.0-arm64.zip",
-  "version": "2.4.0",
+  "downloadUrl": "https://github.com/SamSpring/SpaceBar-Public/releases/download/v2.4.1/SpaceBar-2.4.1-arm64.zip",
+  "version": "2.4.1",
   "architecture": "arm64",
   "minimumMacOS": "27.0",
-  "sha256": "65d718ed2f78bef0e7fd0d32bd1d0a460b19df01dc327d2640d2bf5f8da5b1ef",
+  "sha256": "8318e7182e842e11b1ba12e399dee3f29dc04cbc97bd6d9fbc40ac375b36062a",
   "notarized": true,
   "cleanInstallVerified": true,
   "supportUrl": "https://ko-fi.com/samspring"
