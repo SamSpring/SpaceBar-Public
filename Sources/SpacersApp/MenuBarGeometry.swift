@@ -21,6 +21,29 @@ struct OwnMenuBarBinding: @unchecked Sendable {
 struct MenuBarReadout: Sendable {
     var icons: [LayoutIcon] = []
     var targets: [UUID: MenuBarTarget] = [:]
+
+    func resizeComparison(with after: MenuBarReadout, display: String,
+                          excluding identifier: String) -> (before: [LayoutIcon], after: [LayoutIcon]) {
+        let old = icons.filter { $0.displayID == display && $0.identifier != identifier }
+        let new = after.icons.filter { $0.displayID == display && $0.identifier != identifier }
+        return FlexResizeSafety.withProxyContinuity(before: old, after: new,
+            matches: proxyMatches(with: after, display: display, excluding: identifier))
+    }
+
+    func proxyMatches(with after: MenuBarReadout, display: String, excluding identifier: String) -> [UUID: UUID] {
+        let old = icons.filter { $0.displayID == display && $0.identifier != identifier }
+        let new = after.icons.filter { $0.displayID == display && $0.identifier != identifier }
+        var matches: [UUID: UUID] = [:]
+        for icon in old {
+            guard let target = targets[icon.id] else { continue }
+            let candidates = new.filter { candidate in
+                guard let other = after.targets[candidate.id] else { return false }
+                return target.app.pid == other.app.pid && CFEqual(target.element, other.element)
+            }
+            if candidates.count == 1 { matches[icon.id] = candidates[0].id }
+        }
+        return matches
+    }
 }
 
 @MainActor

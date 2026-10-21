@@ -1,5 +1,6 @@
 import AppKit
 import SpacersCore
+import os
 
 @MainActor
 final class FlexSpacerCoordinator: NSObject {
@@ -15,6 +16,29 @@ final class FlexSpacerCoordinator: NSObject {
     private var displaySleeping = CGDisplayIsAsleep(CGMainDisplayID()) != 0
     private var sessionInactive = false
     private var recovery = FlexRecoveryGate()
+    private var safetyPause: (id: UUID, message: String)?
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "local.samuelaviv.MenuBarSpacers", category: "FlexSpacer")
+    private var recordedResizeFailure = false
+    private struct CapacityContext: Hashable {
+        let display: String
+        let menuOwner: pid_t
+        let menuRight: Double
+        let screenLeft: Double
+        let screenWidth: Double
+    }
+    private struct NativeLimit {
+        let width: FlexGrowthLimit
+        let arrangement: FlexBarArrangement
+    }
+    private var nativeLimits: [CapacityContext: NativeLimit] = [:]
+    private var resizeRequiresRecovery = false
+    private var resizeRetryStatus = "Waiting for safe room or settled positions. Center remains on and will retry automatically."
+    private var delayedVerificationCount = 0
+#if SPACEBAR_LOCAL_DIAGNOSTICS
+    private var lastCapacityDetails: [String: Any] = [:]
+    private var lastResizeDetails: [String: Any] = [:]
+    private var lastAppliedResizeDetails: [String: Any] = [:]
+#endif
     private(set) var completedObservationCount = 0
     var isMonitoring: Bool { timer?.isValid == true }
     var hasMonitoringActivity: Bool { monitoringActivity != nil }
@@ -28,7 +52,9 @@ final class FlexSpacerCoordinator: NSObject {
         super.init()
         NotificationCenter.default.addObserver(self, selector: #selector(frameChanged), name: NSWindow.didMoveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(frameChanged), name: NSWindow.didResizeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(screenParametersChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         let workspace = NSWorkspace.shared.notificationCenter
+        workspace.addObserver(self, selector: #selector(activeApplicationChanged), name: NSWorkspace.didActivateApplicationNotification, object: nil)
         for name in [NSWorkspace.willSleepNotification, NSWorkspace.didWakeNotification,
                      NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification,
                      NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
@@ -55,11 +81,13 @@ final class FlexSpacerCoordinator: NSObject {
             recovery.reset()
             retryNotBefore = nil
             if let item = owner?.configuration.items.first(where: { $0.kind == .flexSpacer }) {
-                publish("Paused at \(Int(owner?.controllers[item.id].map { Double($0.statusItem.length) } ?? item.width)) pt. Use Center to follow icons; Arrange if hidden.")
+                let reason = safetyPause?.id == item.id ? safetyPause?.message : nil
+                publish(reason ?? "Paused at \(Int(owner?.controllers[item.id].map { Double($0.statusItem.length) } ?? item.width)) pt. Use Center to follow icons; Arrange if hidden.")
             }
         } else if !canMonitor {
             publish("Waiting for the display and session to wake. Center will resume automatically.")
         }
+        if enabled { safetyPause = nil }
         schedule()
         refreshAvailableRoom()
     }
@@ -71,6 +99,49 @@ final class FlexSpacerCoordinator: NSObject {
         measurementGeneration += 1
         readingTask?.cancel(); readingTask = nil; reading = false
     }
+
+    func manualControlRequested() {
+        safetyPause = nil
+        retryNotBefore = nil
+        recovery.reset()
+        recordedResizeFailure = false
+        nativeLimits.removeAll()
+    }
+
+#if SPACEBAR_LOCAL_DIAGNOSTICS
+    func writeRuntimeDiagnostic() {
+        guard let owner else { return }
+        let item = owner.configuration.items.first { $0.kind == .flexSpacer }
+        var value: [String: Any] = ["time": ISO8601DateFormatter().string(from: Date()),
+            "pid": Int(ProcessInfo.processInfo.processIdentifier),
+            "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
+            "status": status, "monitoring": isMonitoring, "activity": hasMonitoringActivity,
+            "canMonitor": canMonitor, "reading": reading, "adjusting": isAdjusting,
+            "observations": completedObservationCount, "recoveryWaiting": recovery.isWaiting,
+            "delayedVerifications": delayedVerificationCount,
+            "systemSleeping": systemSleeping, "displaySleeping": displaySleeping,
+            "sessionInactive": sessionInactive, "trusted": MenuBarAccess.isTrusted,
+            "previewing": owner.isPreviewing, "layoutBusy": owner.layoutManager.isBusy,
+            "mouseButtons": NSEvent.pressedMouseButtons, "enabled": item?.flex?.isEnabled == true]
+        value["allowsLeftOverflow"] = item?.flex?.allowsLeftOverflow == true
+        value["nativeLimits"] = nativeLimits.map { ["menuOwnerPID": Int($0.key.menuOwner),
+            "display": $0.key.display, "menuRight": $0.key.menuRight,
+            "acceptedWidth": $0.value.width.acceptedWidth, "normalizedLeft": $0.value.width.normalizedLeft,
+            "rightEdge": $0.value.width.referenceRightEdge ?? 0] as [String: Any] }
+        value["capacityCheck"] = lastCapacityDetails
+        value["lastResize"] = lastResizeDetails
+        value["lastAppliedResize"] = lastAppliedResizeDetails
+        if let item { value["runtimeWidth"] = owner.controllers[item.id].map { Double($0.statusItem.length) } }
+        if let lastFrame { value["frame"] = [Double(lastFrame.minX), Double(lastFrame.minY), Double(lastFrame.width), Double(lastFrame.height)] }
+        if let lastScreen { value["displayCenter"] = Double(lastScreen.bounds.midX) }
+        if let availableWidth { value["availableWidth"] = availableWidth }
+        if let retryNotBefore { value["retryNotBefore"] = ISO8601DateFormatter().string(from: retryNotBefore) }
+        do {
+            let data = try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: owner.store.url.deletingLastPathComponent().appendingPathComponent("flex-runtime-state.json"), options: .atomic)
+        } catch { logger.error("Could not write the requested local flex diagnostic.") }
+    }
+#endif
 
     @objc private func workspaceStateChanged(_ notification: Notification) {
         switch notification.name {
@@ -86,12 +157,25 @@ final class FlexSpacerCoordinator: NSObject {
         // must never resize, pause Center, or clear the newer read's busy flag.
         stopMonitoring()
         owner?.menuGeometry.invalidateOwnBindings()
+        nativeLimits.removeAll()
         lastFrame = nil; lastScreen = nil; recovery.wait()
         retryNotBefore = nil
         configurationChanged()
     }
 
     @objc private func frameChanged(_ notification: Notification) { if timer != nil { schedule() } }
+    @objc private func activeApplicationChanged(_ notification: Notification) {
+        retryNotBefore = nil
+        if timer != nil { schedule() }
+    }
+    @objc private func screenParametersChanged(_ notification: Notification) {
+        stopMonitoring()
+        owner?.menuGeometry.invalidateOwnBindings()
+        nativeLimits.removeAll()
+        lastFrame = nil; lastScreen = nil
+        retryNotBefore = nil; recovery.wait()
+        configurationChanged()
+    }
     @objc private func tick() { rebalance() }
     private func schedule() {
         guard !pending else { return }
@@ -103,61 +187,127 @@ final class FlexSpacerCoordinator: NSObject {
     }
 
     private(set) var isAdjusting = false
-    private(set) var resizeFailureCanRetry = false
 
     /// No dragging or active width probes. Missing/ambiguous geometry refuses
     /// growth; shrinking remains available to recover an oversized hidden item.
-    func resizeSafely(_ id: UUID, to width: Double) async -> Bool {
-        resizeFailureCanRetry = false
+    func resizeSafely(_ id: UUID, to width: Double) async -> FlexResizeResult {
+        resizeRetryStatus = "Waiting for safe room or settled positions. Center remains on and will retry automatically."
         guard !isAdjusting, let owner, let controller = owner.controllers[id],
-              width.isFinite, (6...3000).contains(width), !owner.layoutManager.isBusy else { return false }
+              width.isFinite, (6...3000).contains(width), !owner.layoutManager.isBusy else { return .retry }
+        resizeRequiresRecovery = false
         defer { if owner.isUITest { print("QA resize \(width) pt: \(status)") } }
         let original = Double(controller.statusItem.length)
-        if abs(original - width) < 0.5 { return true }
+#if SPACEBAR_LOCAL_DIAGNOSTICS
+        let started = Date()
+        var diagnosticResult = "waiting"
+        var overflowHiddenCount = 0
+        defer {
+            lastResizeDetails = ["original": original, "requested": width,
+                "result": diagnosticResult, "overflowHiddenCount": overflowHiddenCount,
+                "elapsedMilliseconds": Date().timeIntervalSince(started) * 1000]
+            if diagnosticResult == "applied" { lastAppliedResizeDetails = lastResizeDetails }
+        }
+#endif
+        if abs(original - width) < 0.5 { return .applied }
         if width < original {
             controller.applyFlexWidth(width)
+#if SPACEBAR_LOCAL_DIAGNOSTICS
+            diagnosticResult = "applied"
+#endif
             publish("Sized to \(Int(width)) pt.")
-            return true
+            return .applied
         }
         guard MenuBarAccess.isTrusted else {
-            resizeFailureCanRetry = true
             publish("Growth needs Accessibility to check available room. Open Accessibility Settings below; shrinking and Arrange still work.")
-            return false
+            return .retry
         }
         isAdjusting = true
         defer { isAdjusting = false; owner.refreshFeatureUI() }
         let saved = owner.configuration
+        let allowsOverflow = saved.items.first(where: { $0.id == id })?.flex?.allowsLeftOverflow == true
         guard let room = await availableRoom(for: id) else {
-            resizeFailureCanRetry = true
             availableWidth = nil
             publish("Cannot check this spacer’s room safely. Use Arrange, ⌘-drag it into view, then try again.")
-            return false
+            return .retry
         }
-        let (capacity, before, apps, screens, icon, menuOwner) = room
+        let (capacity, before, apps, screens, icon, context) = room
         let identifier = "SpaceBar.Item.\(id.uuidString)"
         availableWidth = capacity.rounded(.down)
         guard width <= capacity else {
-            resizeFailureCanRetry = true
-            publish("Only \(Int(capacity.rounded(.down))) pt fits without hiding visible icons. Reduce the gap or remove icons; size kept at \(Int(original)) pt."); return false
+            if nativeLimits[context] != nil {
+                resizeRetryStatus = "Waiting for room on the left. macOS cannot fit a centered gap with these icons and application menus. Center remains on; free some room and it will resume."
+            } else {
+                resizeRetryStatus = "Only \(Int(capacity.rounded(.down))) pt fits without hiding visible icons. Center remains on and will retry when room returns."
+            }
+            publish(resizeRetryStatus); return .retry
         }
-        guard NSWorkspace.shared.menuBarOwningApplication?.processIdentifier == menuOwner else {
-            resizeFailureCanRetry = true
+        guard NSWorkspace.shared.menuBarOwningApplication?.processIdentifier == context.menuOwner else {
             publish("Waiting for the current app’s menu to settle before growing the gap.")
-            return false
+            return .retry
         }
         guard owner.configuration == saved, owner.controllers[id] === controller,
               !owner.layoutManager.isBusy, NSEvent.pressedMouseButtons == 0,
-              !Task.isCancelled, abs(controller.statusItem.length - original) < 0.5 else { return false }
+              !Task.isCancelled, abs(controller.statusItem.length - original) < 0.5 else {
+            publish("Waiting for the current interaction to finish. Center will retry automatically.")
+            return .retry
+        }
         controller.applyFlexWidth(width)
-        // Verify the native host after the single resize. If the OS hides an
-        // item or changes order/right anchor, roll back. A proven change in
+        resizeRequiresRecovery = true
+        // Verify the native host after the single resize. Native overflow is
+        // allowed only by the user's explicit preference and a separate check
+        // retaining every native object and the remaining visible order.
+        // A proven change in
         // other icons may retry after settling; actual reordering still pauses.
-        try? await Task.sleep(for: .milliseconds(180))
         // MenuBarAgent can replace a proxy when its width changes. Rebind by
         // verified ownership and unique visible width before checking the host;
         // a stale AX handle is not evidence that the spacer disappeared.
-        await owner.menuGeometry.resolveOwnItems(ids: [id])
-        let after = await owner.menuGeometry.read(apps: apps, screens: screens)
+        var after = MenuBarReadout()
+        var resized: LayoutIcon?
+        var comparison: (before: [LayoutIcon], after: [LayoutIcon]) = ([], [])
+        var result = FlexResizeResult.retry
+        var previousBoundary: Double?
+        var confirmedBoundary: Double?
+        var verificationReads = 0
+        // Re-read the SAME requested size; never probe by applying more sizes.
+        // Native animations can temporarily overlap items at the 180 ms mark.
+        for delay in [180, 180, 300, 400] {
+            try? await Task.sleep(for: .milliseconds(delay))
+            if Task.isCancelled { break }
+            await owner.menuGeometry.resolveOwnItems(ids: [id])
+            after = await owner.menuGeometry.read(apps: apps, screens: screens)
+            verificationReads += 1
+            guard owner.configuration == saved, owner.controllers[id] === controller else { break }
+            guard NSWorkspace.shared.menuBarOwningApplication?.processIdentifier == context.menuOwner else {
+                result = .retry
+                confirmedBoundary = nil
+                resizeRetryStatus = "Waiting for the current app’s menus to settle. Center remains on and will retry automatically."
+                break
+            }
+            resized = after.icons.first { $0.identifier == identifier && $0.displayID == icon.displayID }
+            comparison = before.resizeComparison(with: after, display: icon.displayID, excluding: identifier)
+            result = FlexResizeSafety.verifyGrowth(originalLength: original, requestedLength: width,
+                before: icon, after: resized, othersBefore: comparison.before, othersAfter: comparison.after)
+            if result == .retry, allowsOverflow {
+                result = FlexNativeOverflow.verifyGrowth(originalLength: original, requestedLength: width,
+                    before: icon, after: resized,
+                    othersBefore: before.icons.filter { $0.displayID == icon.displayID && $0.identifier != identifier },
+                    othersAfter: after.icons.filter { $0.displayID == icon.displayID && $0.identifier != identifier },
+                    matches: before.proxyMatches(with: after, display: icon.displayID, excluding: identifier))
+#if SPACEBAR_LOCAL_DIAGNOSTICS
+                if result == .applied, let resized {
+                    overflowHiddenCount = FlexNativeOverflow.hiddenCount(spacer: resized,
+                        others: after.icons.filter { $0.displayID == icon.displayID && $0.identifier != identifier })
+                }
+#endif
+            }
+            let boundary = FlexResizeSafety.observedLeftBoundary(before: icon, after: resized,
+                growth: width - original, othersBefore: comparison.before, othersAfter: comparison.after)
+            confirmedBoundary = boundary.flatMap { value in
+                previousBoundary.map { abs($0 - value) <= 1 ? value : nil } ?? nil
+            }
+            previousBoundary = boundary
+            if result == .applied || NSEvent.pressedMouseButtons != 0 { break }
+        }
         guard owner.configuration == saved, owner.controllers[id] === controller else {
             // Another edit may arrive during verification. Revert our runtime
             // change only when no newer width/Arrange action replaced it.
@@ -165,40 +315,90 @@ final class FlexSpacerCoordinator: NSObject {
                owner.configuration.items.first(where: { $0.id == id })?.width == saved.items.first(where: { $0.id == id })?.width {
                 controller.applyFlexWidth(original)
             }
-            return false
+            return .retry
         }
-        let resized = after.icons.first { $0.identifier == identifier && $0.displayID == icon.displayID }
-        let beforeOrder = orderSignature(before.icons, display: icon.displayID, excluding: identifier)
-        let afterOrder = orderSignature(after.icons, display: icon.displayID, excluding: identifier)
-        let othersBefore = before.icons.filter { $0.displayID == icon.displayID && $0.identifier != identifier }
-        let othersAfter = after.icons.filter { $0.displayID == icon.displayID && $0.identifier != identifier }
-        let orderPreserved = beforeOrder == afterOrder ||
-            FlexResizeSafety.visibleItemsPreserved(before: othersBefore, after: othersAfter)
-        let anchorStable = resized.map { abs(($0.left + $0.width) - (icon.left + icon.width)) <= 2 && abs($0.width - icon.width - width + original) <= 2 } ?? false
-        if Task.isCancelled || !anchorStable || !orderPreserved {
+        if Task.isCancelled || NSEvent.pressedMouseButtons != 0 ||
+            NSWorkspace.shared.menuBarOwningApplication?.processIdentifier != context.menuOwner {
+            result = .retry
+            confirmedBoundary = nil
+        }
+        if result != .applied {
+#if SPACEBAR_LOCAL_DIAGNOSTICS
+            diagnosticResult = String(describing: result)
+#endif
             controller.applyFlexWidth(original)
-            let ownSizeApplied = resized.map { abs($0.width - icon.width - width + original) <= 2 } ?? false
-            if !Task.isCancelled, resized == nil {
-                resizeFailureCanRetry = true
-                retryNotBefore = Date().addingTimeInterval(3)
-                publish("Waiting for macOS to expose the spacer’s updated position. Previous width kept; Center remains on.")
-                return false
+            var rememberedClipping = false
+            if !allowsOverflow, !Task.isCancelled, NSEvent.pressedMouseButtons == 0,
+               confirmedBoundary != nil,
+               let leftmost = before.icons.map(\.left).min(),
+               let limit = FlexGrowthLimit(current: original, leftmostIcon: context.screenLeft + leftmost,
+                    rightEdge: context.screenLeft + icon.left + icon.width) {
+                if nativeLimits.count >= 8 { nativeLimits.removeAll() }
+                nativeLimits[context] = NativeLimit(width: limit, arrangement: arrangement(in: before, spacer: icon))
+                rememberedClipping = true
+                resizeRetryStatus = "Waiting for room on the left. macOS compressed those icons during growth, so the previous width was restored. Center will resume when room returns."
             }
-            if !Task.isCancelled, ownSizeApplied,
-               (orderPreserved || FlexResizeSafety.environmentChangedWithoutReordering(before: othersBefore, after: othersAfter)) {
-                resizeFailureCanRetry = true
-                retryNotBefore = Date().addingTimeInterval(3)
-                publish("Menu bar positions changed during the check. Previous width kept; waiting for them to settle.")
-                return false
+            if !Task.isCancelled, NSEvent.pressedMouseButtons == 0,
+               !recordedResizeFailure || result == .unsafeOrder || rememberedClipping {
+                recordSafetyStop(before: before, after: after, original: original, requested: width,
+                                 comparison: comparison, clippingConfirmed: rememberedClipping,
+                                 verificationReads: verificationReads)
+                recordedResizeFailure = true
             }
-            publish("macOS could not keep this size visible and in place. Previous width restored; centering paused.")
-            return false
+            if result == .retry {
+                retryNotBefore = Date().addingTimeInterval(3)
+                publish("Waiting for macOS to finish updating menu bar positions. Previous width kept; Center will retry automatically.")
+            } else {
+                publish("Icon order could not be verified after resizing. Previous width restored; Center paused for safety. Click Center to try again.")
+            }
+            return result
+        }
+        if verificationReads > 1 {
+            delayedVerificationCount += 1
+            logger.notice("Growth verification settled after \(verificationReads) readouts.")
         }
         publish("Sized to \(Int(width)) pt; visible icon order checked.")
-        return true
+#if SPACEBAR_LOCAL_DIAGNOSTICS
+        diagnosticResult = "applied"
+#endif
+        return .applied
     }
 
-    private func availableRoom(for id: UUID) async -> (maximum: Double, before: MenuBarReadout, apps: [LayoutApp], screens: [LayoutScreen], icon: LayoutIcon, menuOwner: pid_t)? {
+    /// Keep only the latest safety failure, without labels or menu contents.
+    /// A future report can distinguish a real order change from missing proxies.
+    private func recordSafetyStop(before: MenuBarReadout, after: MenuBarReadout,
+                                  original: Double, requested: Double,
+                                  comparison: (before: [LayoutIcon], after: [LayoutIcon]),
+                                  clippingConfirmed: Bool, verificationReads: Int) {
+        guard let owner else { return }
+        func snapshot(_ readout: MenuBarReadout) -> [[String: Any]] {
+            readout.icons.map { icon in
+                ["bundleID": icon.bundleID, "displayID": icon.displayID,
+                 "frame": [icon.left, icon.top, icon.width, icon.height],
+                 "proxyToken": icon.id.uuidString]
+            }
+        }
+        let continuity = comparison.before.compactMap { icon -> [String: String]? in
+            guard icon.identifier.hasPrefix("SpaceBar.Resize."),
+                  let other = comparison.after.first(where: { $0.identifier == icon.identifier }) else { return nil }
+            return ["before": icon.id.uuidString, "after": other.id.uuidString]
+        }
+        let record: [String: Any] = ["time": ISO8601DateFormatter().string(from: Date()),
+            "pid": Int(ProcessInfo.processInfo.processIdentifier),
+            "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
+            "originalLength": original, "requestedLength": requested,
+            "clippingConfirmed": clippingConfirmed, "verificationReads": verificationReads,
+            "before": snapshot(before), "after": snapshot(after),
+            "beforeCoherent": FlexResizeSafety.isCoherent(before.icons),
+            "afterCoherent": FlexResizeSafety.isCoherent(after.icons),
+            "proxyContinuity": continuity]
+        do {
+            let data = try JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: owner.store.url.deletingLastPathComponent().appendingPathComponent("flex-last-safety-stop.json"), options: .atomic)
+        } catch { logger.error("Could not save the local flex safety-stop diagnostic.") }
+    }
+
+    private func availableRoom(for id: UUID) async -> (maximum: Double, before: MenuBarReadout, apps: [LayoutApp], screens: [LayoutScreen], icon: LayoutIcon, context: CapacityContext)? {
         guard let owner, let controller = owner.controllers[id], MenuBarAccess.isTrusted else { return nil }
         let original = Double(controller.statusItem.length)
         let knownScreens = MenuBarAccess.screens()
@@ -212,6 +412,12 @@ final class FlexSpacerCoordinator: NSObject {
               let pid = NSWorkspace.shared.menuBarOwningApplication?.processIdentifier else {
             return nil
         }
+        let allowsOverflow = owner.configuration.items.first(where: { $0.id == id })?.flex?.allowsLeftOverflow == true
+        let others = before.icons.filter { $0.displayID == icon.displayID && $0.identifier != identifier }
+        // Overlapping frames normally mean a non-atomic read. The one allowed
+        // exception is a recognized leading group behind native overflow.
+        guard FlexResizeSafety.isCoherent(before.icons) ||
+            (allowsOverflow && FlexNativeOverflow.isRecognized(spacer: icon, others: others)) else { return nil }
         var ownMenuRight: Double?
         if pid == NSRunningApplication.current.processIdentifier {
             ownMenuRight = NSApp.mainMenu?.items.map { $0.accessibilityFrame() }.filter {
@@ -235,12 +441,47 @@ final class FlexSpacerCoordinator: NSObject {
         if let ownMenuRight { menuRight = ownMenuRight }
         else { menuRight = await Task.detached { MenuBarAccess.applicationMenuRight(pid: pid, screen: screen, knownScreens: knownScreens) }.value }
         guard let menuRight,
-              let leftmost = before.icons.filter({ $0.displayID == icon.displayID }).map(\.left).min(),
-              let capacity = FlexSafety.maximumWidth(current: original,
-                leftmostIcon: screen.bounds.minX + leftmost, applicationMenuRight: menuRight) else {
+              let leftmost = before.icons.filter({ $0.displayID == icon.displayID }).map(\.left).min() else {
             return nil
         }
-        return (capacity, before, apps, screens, icon, pid)
+        let context = CapacityContext(display: icon.displayID, menuOwner: pid,
+            menuRight: menuRight.rounded(), screenLeft: screen.bounds.minX, screenWidth: screen.bounds.width)
+        let leftmostAbsolute = screen.bounds.minX + leftmost
+        guard let nominalCapacity = FlexSafety.maximumWidth(current: original,
+            leftmostIcon: leftmostAbsolute, applicationMenuRight: menuRight) else { return nil }
+        // A native refusal is valid for the actual surrounding icons/processes.
+        // Added/removed/rearranged icons can invalidate it even when their net
+        // width happens to leave the leftmost coordinate almost unchanged.
+        if let limit = nativeLimits[context] {
+            if limit.arrangement != arrangement(in: before, spacer: icon) ||
+                !limit.width.applies(toRightEdge: screen.bounds.minX + icon.left + icon.width) {
+                nativeLimits.removeValue(forKey: context)
+            }
+        }
+        // Width + left edge is unchanged by our own resize/rollback. Only an
+        // external gain in room increases a previously rejected native limit.
+        let nativeCapacity = nativeLimits[context]?.width.maximumWidth(current: original, leftmostIcon: leftmostAbsolute)
+        let capacity: Double
+        if allowsOverflow {
+            nativeLimits.removeValue(forKey: context)
+            // Keep the entire spacer on this display. The OS may hide leading
+            // status items, but centering cannot push the gap off-screen.
+            capacity = max(6, icon.left + icon.width - max(0, icon.width - original))
+        } else { capacity = min(nominalCapacity, nativeCapacity ?? nominalCapacity) }
+#if SPACEBAR_LOCAL_DIAGNOSTICS
+        lastCapacityDetails = ["menuOwnerPID": Int(pid), "ownPID": Int(ProcessInfo.processInfo.processIdentifier),
+            "menuOwnerBundle": apps.first(where: { $0.pid == pid })?.bundleID ?? "unknown",
+            "menuRight": menuRight, "nominalCapacity": nominalCapacity, "leftmost": leftmostAbsolute,
+            "currentLength": original, "capacity": capacity,
+            "allowsLeftOverflow": allowsOverflow,
+            "leftmostBundle": before.icons.min(by: { $0.left < $1.left })?.bundleID ?? "unknown"]
+#endif
+        return (capacity, before, apps, screens, icon, context)
+    }
+
+    private func arrangement(in readout: MenuBarReadout, spacer: LayoutIcon) -> FlexBarArrangement {
+        FlexBarArrangement(spacer: spacer, icons: readout.icons,
+            owners: readout.targets.mapValues { $0.app.pid })
     }
 
     private(set) var availableWidth: Double?
@@ -267,19 +508,12 @@ final class FlexSpacerCoordinator: NSObject {
         }
     }
 
-    private func orderSignature(_ icons: [LayoutIcon], display: String, excluding: String) -> [String] {
-        icons.filter { $0.displayID == display && $0.identifier != excluding }.sorted { $0.left < $1.left }.map {
-            "\($0.bundleID)|\($0.identifier)|\(Int(($0.width * 2).rounded()))"
-        }
-    }
-
     func rebalance() {
         guard let owner, let item = owner.configuration.items.first(where: { $0.kind == .flexSpacer }),
               let settings = item.flex, let controller = owner.controllers[item.id] else {
             publish("Add a flex spacer to keep a gap centered."); return
         }
         guard settings.isEnabled, canMonitor else { return }
-        if let retryNotBefore, Date() < retryNotBefore { return }
         guard !owner.layoutManager.isBusy, !owner.isPreviewing, !isAdjusting,
               NSEvent.pressedMouseButtons == 0, !reading else { return }
         guard MenuBarAccess.isTrusted else {
@@ -303,6 +537,17 @@ final class FlexSpacerCoordinator: NSObject {
             }
             let frame = CGRect(x: screen.bounds.minX + icon.left, y: screen.bounds.minY + icon.top,
                                width: icon.width, height: icon.height)
+            // A new right-hand anchor is fresh external evidence. Never make
+            // it wait through the backoff for an earlier, different layout.
+            if let previous = lastFrame, abs(previous.maxX - frame.maxX) > 2 {
+                retryNotBefore = nil
+                // This must also happen in the cheap own-frame poll: a return
+                // to center needs no resize/full scan, but still ends the old
+                // failure's lifetime before a later move back to its position.
+                nativeLimits = nativeLimits.filter { context, limit in
+                    context.display != screen.display.id || limit.width.applies(toRightEdge: frame.maxX)
+                }
+            }
             lastFrame = frame; lastScreen = screen
             let protectedGap = max(6, screen.notch.map { $0.width + 24 } ?? 0)
             let minimum = max(settings.centeringMinimumWidth, protectedGap)
@@ -316,15 +561,32 @@ final class FlexSpacerCoordinator: NSObject {
                 wait("Right-hand icons reach the protected center area. Waiting; Center will resume automatically when they move back."); return
             }
             guard recovery.canResume(rightEdge: frame.maxX, displayID: screen.display.id) else {
-                publish("Room is returning. Checking the anchor before Center resumes…"); return
+                publish("Checking the spacer’s anchor before Center can continue…"); return
             }
             let width = max(6, result.width - padding)
+            // Apply the verified target once. Fixed 24 pt increments caused a
+            // visible staircase and repeated full-bar scans for one change.
+            // Backoff applies only to growth; shrinking must remain responsive.
+            if width > Double(controller.statusItem.length) + 1,
+               let retryNotBefore, Date() < retryNotBefore {
+                publish(resizeRetryStatus); return
+            }
             if abs(controller.statusItem.length - width) > 1 {
-                guard await resizeSafely(item.id, to: width) else {
+                let resize = await resizeSafely(item.id, to: width)
+                guard resize == .applied else {
                     if generation == measurementGeneration, canMonitor, !Task.isCancelled,
                        owner.configuration.items.first(where: { $0.id == item.id }) == item {
-                        if resizeFailureCanRetry { wait("Waiting for safe room to resize. Current size kept; Center will retry automatically.") }
-                        else { pause(item, message: status) }
+                        if resize == .unsafeOrder { pause(item, message: status) }
+                        else {
+                            if resizeRequiresRecovery { wait(resizeRetryStatus) }
+                            else {
+                                // Read-only capacity refusal needs no anchor
+                                // recovery cycle. Keep heavy scans bounded;
+                                // the cheap own-frame poll still sees changes.
+                                retryNotBefore = Date().addingTimeInterval(1.5)
+                                publish(resizeRetryStatus)
+                            }
+                        }
                     }
                     return
                 }
@@ -345,6 +607,8 @@ final class FlexSpacerCoordinator: NSObject {
 
     private func pause(_ item: ItemConfiguration, message: String) {
         guard let owner, owner.configuration.items.first(where: { $0.id == item.id }) == item else { return }
+        safetyPause = (item.id, message)
+        logger.notice("Center paused for safety: \(message, privacy: .public)")
         var paused = item
         paused.width = owner.controllers[item.id].map { Double($0.statusItem.length) } ?? item.width
         paused.flex?.isEnabled = false
@@ -368,6 +632,7 @@ final class FlexSpacerRow: NSStackView {
     private let enable = NSButton(title: "Center", target: nil, action: nil)
     private let arrange = NSButton(title: "Arrange", target: nil, action: nil)
     private let show = NSButton(title: "Show", target: nil, action: nil)
+    private let allowOverflow = NSButton(checkboxWithTitle: "Keep centered when left icons overflow", target: nil, action: nil)
     private let minimum = TrackingSlider()
     private let minimumCaption = NSTextField(labelWithString: "Width")
     private let maximum = TrackingSlider()
@@ -405,6 +670,9 @@ final class FlexSpacerRow: NSStackView {
         maximum.toolTip = "Caps the spacer width. A higher maximum leaves the width unchanged until more room is needed."
         minimum.onTrackingEnded = { [weak self] in self?.saveLimits(sizingFromMinimum: true) }
         maximum.onTrackingEnded = { [weak self] in self?.saveLimits(sizingFromMinimum: false) }
+        allowOverflow.target = self; allowOverflow.action = #selector(toggleOverflow)
+        allowOverflow.toolTip = "Allow macOS to put leftmost icons in its hidden menu bar area when the gap grows."
+        addArrangedSubview(allowOverflow)
         status.font = .systemFont(ofSize: 11); status.textColor = .secondaryLabelColor
         addArrangedSubview(status); status.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
         refresh(item, number: owner.number(for: id))
@@ -414,6 +682,7 @@ final class FlexSpacerRow: NSStackView {
         title.stringValue = "Flex Spacer \(number)"
         enable.title = item.flex?.isEnabled == true ? "Pause" : "Center"
         show.title = item.isHighlighted ? "Hide" : "Show"
+        allowOverflow.state = item.flex?.allowsLeftOverflow == true ? .on : .off
         let isCentering = item.flex?.isEnabled == true
         minimumCaption.stringValue = isCentering ? "Minimum gap" : "Width"
         minimum.setAccessibilityLabel(isCentering ? "Flex spacer minimum gap" : "Flex spacer width")
@@ -428,7 +697,7 @@ final class FlexSpacerRow: NSStackView {
         }
         updateLabels()
         status.stringValue = owner?.flexCoordinator.status ?? ""
-        for control in [arrange, enable, show, minimum, maximum] as [NSControl] { control.isEnabled = owner?.layoutManager.isBusy != true && owner?.flexCoordinator.isAdjusting != true && !isSaving }
+        for control in [arrange, enable, show, minimum, maximum, allowOverflow] as [NSControl] { control.isEnabled = owner?.layoutManager.isBusy != true && owner?.flexCoordinator.isAdjusting != true && !isSaving }
     }
     private func updateLabels() {
         minimumLabel.stringValue = "\(Int(minimum.doubleValue)) pt"
@@ -463,5 +732,6 @@ final class FlexSpacerRow: NSStackView {
     @objc private func arrangeItem() { owner?.arrangeFlex(id) }
     @objc private func toggleEnabled() { owner?.toggleFlex(id) }
     @objc private func toggleShow() { owner?.toggleHighlight(id) }
+    @objc private func toggleOverflow() { owner?.setFlexAllowsLeftOverflow(id, enabled: allowOverflow.state == .on) }
     @objc private func deleteItem() { owner?.remove(id) }
 }

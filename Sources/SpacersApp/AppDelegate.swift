@@ -3,6 +3,9 @@ import ServiceManagement
 import SpacersCore
 import SpaceBarUpdates
 import UniformTypeIdentifiers
+#if SPACEBAR_LOCAL_DIAGNOSTICS
+import Darwin
+#endif
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UpdateHost {
@@ -35,8 +38,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UpdateHost {
     var previewingDividers: Bool { previewingDividerDimension != nil }
     private(set) var saveError: String?
     var isUITest: Bool { Bundle.main.bundleIdentifier?.hasSuffix(".UITests") == true }
+#if SPACEBAR_LOCAL_DIAGNOSTICS
+    private var localDiagnosticSignal: DispatchSourceSignal?
+
+    private func installLocalDiagnosticSignal() {
+        // Read-only developer request: no polling, UI event, helper or network.
+        signal(SIGUSR1, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
+        source.setEventHandler { [weak self] in
+            MainActor.assumeIsolated { self?.flexCoordinator.writeRuntimeDiagnostic() }
+        }
+        source.resume()
+        localDiagnosticSignal = source
+    }
+#endif
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+#if SPACEBAR_LOCAL_DIAGNOSTICS
+        installLocalDiagnosticSignal()
+#endif
         if isUITest {
             // Even an accidental plain launch of the QA bundle is isolated.
             store = ConfigurationStore(url: ConfigurationStore.standard.url.deletingLastPathComponent()
@@ -442,6 +462,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UpdateHost {
     func toggleFlex(_ id: UUID) {
         guard var item = configuration.items.first(where: { $0.id == id }), item.kind == .flexSpacer else { return }
         if item.flex?.isEnabled != true && !MenuBarAccess.isTrusted { layoutManager.explainAccess(); return }
+        flexCoordinator.manualControlRequested()
         if item.flex?.isEnabled == true { item.width = controllers[id].map { Double($0.statusItem.length) } ?? item.width }
         item.flex?.isEnabled.toggle()
         _ = update(item)
@@ -449,10 +470,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UpdateHost {
 
     func arrangeFlex(_ id: UUID) {
         guard var item = configuration.items.first(where: { $0.id == id }), item.kind == .flexSpacer else { return }
+        flexCoordinator.manualControlRequested()
         item.flex?.isEnabled = false; item.width = 24; item.isHighlighted = true
         // update saves first and then applies the native width. Refresh the
         // paused status after the shrink, rather than reporting the old length.
         if update(item) { flexCoordinator.configurationChanged() }
+    }
+
+    func setFlexAllowsLeftOverflow(_ id: UUID, enabled: Bool) {
+        guard var item = configuration.items.first(where: { $0.id == id }), item.kind == .flexSpacer else { return }
+        flexCoordinator.manualControlRequested()
+        item.flex?.allowsLeftOverflow = enabled
+        _ = update(item)
     }
 
     private func flexLimitWidth(_ item: ItemConfiguration, minimum: Double, maximum: Double,
@@ -485,7 +514,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UpdateHost {
         let isCentering = item.flex?.isEnabled == true
         let lower = isCentering || sizingFromMinimum ? minimum : 6
         let width = flexLimitWidth(item, minimum: lower, maximum: maximum, sizingFromMinimum: sizingFromMinimum)
-        guard await flexCoordinator.resizeSafely(id, to: width),
+        guard await flexCoordinator.resizeSafely(id, to: width) == .applied,
               configuration.items.first(where: { $0.id == id }) == original else {
             cancelPreview(for: id); return
         }

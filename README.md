@@ -4,10 +4,10 @@ A little space in your menu bar. SpaceBar is a free, native Swift/AppKit app
 that adds independent blank spacers, subtle dividers, and one flexible gap.
 Hold **Command (⌘)** and drag an item to arrange it.
 
-**[Download SpaceBar 2.4.0 for Mac](https://github.com/SamSpring/SpaceBar-Public/releases/download/v2.4.0/SpaceBar-2.4.0-arm64.zip)**
+**[Download SpaceBar 2.4.1 for Mac](https://github.com/SamSpring/SpaceBar-Public/releases/download/v2.4.1/SpaceBar-2.4.1-arm64.zip)**
 — Developer ID signed and Apple notarized. Visit the
 [SpaceBar website](https://samspring.github.io/SpaceBar-Public/) or
-[release page](https://github.com/SamSpring/SpaceBar-Public/releases/tag/v2.4.0).
+[release page](https://github.com/SamSpring/SpaceBar-Public/releases/tag/v2.4.1).
 
 ## Requirements
 
@@ -30,6 +30,9 @@ Hold **Command (⌘)** and drag an item to arrange it.
 4. For an automatic gap, add the single flex spacer, use **Arrange**, drag it
    between icon groups, and choose **Center**. **Pause** lets you set its width
    manually. Center may wait when room or reliable measurements are missing.
+   The optional **Keep centered when left icons overflow** checkbox lets macOS
+   hide leftmost icons to make room for centering. It is off for existing
+   configurations until selected. Hidden icons' internal order cannot be verified.
 5. Item settings save automatically. Optional **Layout Backup & Restore** is
    **Experimental**. Saving creates a separate named snapshot; restoring first
    saves a recovery snapshot. Only visible, identifiable icons can be restored;

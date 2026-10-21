@@ -9,6 +9,7 @@ let usesSparkle = updateChannel == "public" || updateChannel == "test"
 let updateDependencies: [Target.Dependency] = usesSparkle
     ? ["SpacersCore", .product(name: "Sparkle", package: "Sparkle")] : ["SpacersCore"]
 let updateDefines: [SwiftSetting] = usesSparkle ? [.define("SPACEBAR_SPARKLE_UPDATES")] : []
+let localDiagnosticDefines: [SwiftSetting] = updateChannel == "development" ? [.define("SPACEBAR_LOCAL_DIAGNOSTICS")] : []
 let updateLinkerSettings: [LinkerSetting] = usesSparkle
     ? [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])] : []
 
@@ -21,7 +22,8 @@ let package = Package(
     targets: [
         .target(name: "SpacersCore"),
         .target(name: "SpaceBarUpdates", dependencies: updateDependencies, swiftSettings: updateDefines),
-        .executableTarget(name: "SpacersApp", dependencies: ["SpacersCore", "SpaceBarUpdates"], linkerSettings: updateLinkerSettings),
+        .executableTarget(name: "SpacersApp", dependencies: ["SpacersCore", "SpaceBarUpdates"],
+                          swiftSettings: localDiagnosticDefines, linkerSettings: updateLinkerSettings),
         .executableTarget(name: "SpaceBarUpdateHarness", dependencies: ["SpacersCore", "SpaceBarUpdates"],
                           path: "Tests/UpdateHarness", linkerSettings: updateLinkerSettings),
         .testTarget(name: "SpacersCoreTests", dependencies: ["SpacersCore"])

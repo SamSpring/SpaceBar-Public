@@ -58,6 +58,28 @@ if [[ ! -f "$notes" && -f public-docs/RELEASE_NOTES.md ]]; then notes='public-do
 cp "$notes" "$output/SpaceBar-$version-arm64.md"
 "$SPARKLE_TOOLS/generate_appcast" --account "$SPARKLE_KEY_ACCOUNT" --maximum-deltas 0 \
     --download-url-prefix "$repo/releases/download/v$version/" --embed-release-notes "$output"
+# generate_appcast reapplies its download prefix to older archives too.
+# Restore previously published items in full before completing the NEW item.
+if [[ -n "${PREVIOUS_FEED_STAGE:-}" ]]; then
+    python3 - "$output/appcast.xml" "$PREVIOUS_FEED_STAGE/appcast.xml" <<'PYHISTORY'
+from pathlib import Path
+import sys,xml.etree.ElementTree as ET
+feed,previous=map(Path,sys.argv[1:])
+ns='http://www.andymatuschak.org/xml-namespaces/sparkle'
+ET.register_namespace('sparkle',ns)
+key='{'+ns+'}version'
+tree=ET.parse(feed);channel=tree.find('channel');assert channel is not None
+old_items=ET.parse(previous).findall('./channel/item')
+old_by_build={item.findtext(key):item for item in old_items}
+assert len(old_by_build)==len(old_items) and None not in old_by_build, 'Invalid previous feed versions.'
+for index,item in enumerate(list(channel)):
+    if item.tag=='item' and item.findtext(key) in old_by_build:
+        channel.remove(item);channel.insert(index,old_by_build.pop(item.findtext(key)))
+assert not old_by_build, 'Generator dropped a published feed item.'
+ET.indent(tree,space='    ')
+tree.write(feed,encoding='utf-8',xml_declaration=True)
+PYHISTORY
+fi
 python3 scripts/complete-appcast.py "$output/appcast.xml" "$app"
 python3 scripts/validate-appcast.py "$output/appcast.xml" "$output/$archive" "$app"
 build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")"
