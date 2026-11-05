@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UpdateHost {
     private(set) var controllers: [UUID: StatusItemController] = [:]
     private(set) var store = ConfigurationStore.standard
     private var management: ManagementWindow?
+    private var supportThankYou: SupportThankYouWindow?
     private var loadFailed = false
     lazy var menuGeometry = MenuBarGeometry(owner: self)
     lazy var flexCoordinator = FlexSpacerCoordinator(owner: self)
@@ -83,6 +84,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UpdateHost {
         for item in configuration.items { controllers[item.id] = StatusItemController(configuration: item, owner: self) }
         flexCoordinator.configurationChanged()
         if firstLaunch || configuration.items.isEmpty || startupError != nil { showManagement() }
+        if !isUITest, startupError == nil,
+           Bundle.main.object(forInfoDictionaryKey: "SpaceBarUpdateChannel") as? String == "public" {
+            let supportStore = SupportNoticeStore(url: store.url.deletingLastPathComponent().appendingPathComponent("support-notice.json"))
+            let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+            if (try? supportStore.recordLaunch(build: build, existingInstallation: !firstLaunch)) == true {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.supportThankYou = SupportThankYouWindow(store: supportStore, onClose: { [weak self] in self?.supportThankYou = nil })
+                    self.supportThankYou?.present()
+                }
+            }
+        }
         if isUITest, CommandLine.arguments.contains("--smoke-test") {
             Task { await self.runSmokeTest() }
         }
@@ -463,7 +476,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UpdateHost {
         guard var item = configuration.items.first(where: { $0.id == id }), item.kind == .flexSpacer else { return }
         if item.flex?.isEnabled != true && !MenuBarAccess.isTrusted { layoutManager.explainAccess(); return }
         flexCoordinator.manualControlRequested()
-        if item.flex?.isEnabled == true { item.width = controllers[id].map { Double($0.statusItem.length) } ?? item.width }
+        if item.flex?.isEnabled == true {
+            item.width = StatusItemSizing.savedFlexWidth(from: controllers[id].map { Double($0.statusItem.length) } ?? item.width)
+        }
         item.flex?.isEnabled.toggle()
         _ = update(item)
     }

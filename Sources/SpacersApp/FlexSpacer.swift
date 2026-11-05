@@ -193,7 +193,7 @@ final class FlexSpacerCoordinator: NSObject {
     func resizeSafely(_ id: UUID, to width: Double) async -> FlexResizeResult {
         resizeRetryStatus = "Waiting for safe room or settled positions. Center remains on and will retry automatically."
         guard !isAdjusting, let owner, let controller = owner.controllers[id],
-              width.isFinite, (6...3000).contains(width), !owner.layoutManager.isBusy else { return .retry }
+              width.isFinite, (1...3000).contains(width), !owner.layoutManager.isBusy else { return .retry }
         resizeRequiresRecovery = false
         defer { if owner.isUITest { print("QA resize \(width) pt: \(status)") } }
         let original = Double(controller.statusItem.length)
@@ -554,16 +554,29 @@ final class FlexSpacerCoordinator: NSObject {
             let padding = max(0, frame.width - controller.statusItem.length)
             guard let result = FlexGeometry.solve(rightEdge: frame.maxX, center: screen.bounds.midX,
                 screenLeft: screen.bounds.minX, minimum: minimum + padding,
-                maximum: settings.maximumWidth + padding, protectedMinimum: protectedGap + padding) else {
+                maximum: settings.maximumWidth + padding, protectedMinimum: protectedGap + padding,
+                emergencyMinimum: FlexGeometry.emergencyWidth + padding) else {
                 wait("Waiting for enough room within the gap limits. Current size kept; Center will resume automatically."); return
             }
+            let width = max(FlexGeometry.emergencyWidth, result.width - padding)
             if result.rightSideCrowded {
-                wait("Right-hand icons reach the protected center area. Waiting; Center will resume automatically when they move back."); return
+                // Shrinking needs no growth-capacity scan or stable-anchor
+                // recovery gate. Even impossible centering must reclaim room.
+                // Never grow an already-small gap while the center is blocked.
+                if width < Double(controller.statusItem.length) - 0.5 {
+                    guard await resizeSafely(item.id, to: width) == .applied else { return }
+                }
+                guard generation == measurementGeneration, canMonitor, !Task.isCancelled,
+                      owner.configuration.items.first(where: { $0.id == item.id }) == item else { return }
+                let reason = frame.maxX <= screen.bounds.midX
+                    ? "Right-hand icons cross the center."
+                    : "Right-hand icons reach the protected center area."
+                wait("Gap \(Int(controller.statusItem.length)) pt · \(reason) Center stays on and will resume when room returns.")
+                return
             }
             guard recovery.canResume(rightEdge: frame.maxX, displayID: screen.display.id) else {
                 publish("Checking the spacer’s anchor before Center can continue…"); return
             }
-            let width = max(6, result.width - padding)
             // Apply the verified target once. Fixed 24 pt increments caused a
             // visible staircase and repeated full-bar scans for one change.
             // Backoff applies only to growth; shrinking must remain responsive.
@@ -610,7 +623,7 @@ final class FlexSpacerCoordinator: NSObject {
         safetyPause = (item.id, message)
         logger.notice("Center paused for safety: \(message, privacy: .public)")
         var paused = item
-        paused.width = owner.controllers[item.id].map { Double($0.statusItem.length) } ?? item.width
+        paused.width = StatusItemSizing.savedFlexWidth(from: owner.controllers[item.id].map { Double($0.statusItem.length) } ?? item.width)
         paused.flex?.isEnabled = false
         _ = owner.update(paused)
         publish(message)
@@ -666,7 +679,7 @@ final class FlexSpacerRow: NSStackView {
             let row = NSStackView(views: [caption, slider, value]); row.spacing = 10
             addArrangedSubview(row); row.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
         }
-        minimum.toolTip = "Width while paused; a separate minimum gap while Center runs. Setting a starting width does not lock the smallest automatic size."
+        minimum.toolTip = "Width while paused; the normal minimum gap while Center runs. If right-hand icons cross the display center, the gap temporarily collapses to 1 pt without changing this setting."
         maximum.toolTip = "Caps the spacer width. A higher maximum leaves the width unchanged until more room is needed."
         minimum.onTrackingEnded = { [weak self] in self?.saveLimits(sizingFromMinimum: true) }
         maximum.onTrackingEnded = { [weak self] in self?.saveLimits(sizingFromMinimum: false) }

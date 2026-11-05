@@ -84,7 +84,7 @@ private func capturedClamp() -> (LayoutIcon, LayoutIcon, [LayoutIcon], [LayoutIc
 }
 
 @Test func rejectedGrowthLimitsRefuseInvalidGeometry() {
-    #expect(FlexGrowthLimit(current: 5, leftmostIcon: 525) == nil)
+    #expect(FlexGrowthLimit(current: 0, leftmostIcon: 525) == nil)
     #expect(FlexGrowthLimit(current: .infinity, leftmostIcon: 525) == nil)
     #expect(FlexGrowthLimit(current: 264, leftmostIcon: .nan) == nil)
     let limit = FlexGrowthLimit(current: 264, leftmostIcon: 525)

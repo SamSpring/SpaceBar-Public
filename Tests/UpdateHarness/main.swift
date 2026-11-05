@@ -1,5 +1,6 @@
 import AppKit
 import SpaceBarUpdates
+import SpacersCore
 
 // No status items, Accessibility calls, production configuration, or login items.
 @MainActor
@@ -14,6 +15,7 @@ final class Harness: NSObject, NSApplicationDelegate, UpdateHost {
     private let waiting = NSTextField(labelWithString: "")
     func updateStateDidChange() { waiting.stringValue = updates.waitingMessage ?? "" }
     private var window: NSWindow?
+    private var supportThankYou: SupportThankYouWindow?
     func applicationDidFinishLaunching(_ notification: Notification) {
         let frame = NSRect(x: 0, y: 0, width: 520, height: 210)
         let window = NSWindow(contentRect: frame, styleMask: [.titled,.closable], backing: .buffered, defer: false)
@@ -32,6 +34,23 @@ final class Harness: NSObject, NSApplicationDelegate, UpdateHost {
         quit.bezelStyle = .rounded; quit.frame = NSRect(x: 340, y: 40, width: 140, height: 34)
         for view in [label,note,waiting,button,quit] { window.contentView?.addSubview(view) }
         window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate()
+        if let path = Bundle.main.object(forInfoDictionaryKey: "SpaceBarTestSupportStore") as? String {
+            let store = SupportNoticeStore(url: URL(fileURLWithPath: path))
+            let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+            if (try? store.recordLaunch(build: build, existingInstallation: false)) == true {
+                window.orderOut(nil)
+                supportThankYou = SupportThankYouWindow(store: store, openURL: { url in
+                    // Test the shared button's destination without opening a
+                    // browser or sending a request to the donation service.
+                    try? Data(url.absoluteString.utf8).write(to: store.url.deletingLastPathComponent().appendingPathComponent("opened-url.txt"))
+                    return true
+                }, onClose: { [weak self] in
+                    self?.supportThankYou = nil
+                    self?.window?.makeKeyAndOrderFront(nil)
+                })
+                supportThankYou?.present()
+            }
+        }
         if let log = ProcessInfo.processInfo.environment["SPACEBAR_HARNESS_LAUNCH_LOG"] ?? Bundle.main.object(forInfoDictionaryKey: "SpaceBarTestLaunchLog") as? String {
             let entry = "launched build \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") ?? "?")\n"
             let url = URL(fileURLWithPath: log)

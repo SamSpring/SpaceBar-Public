@@ -24,7 +24,7 @@ import Testing
     let capped = try #require(FlexGeometry.solve(rightEdge: 1400, center: 720, screenLeft: 0, minimum: 220, maximum: 500))
     #expect(capped.width == 500 && !capped.isCentered && !capped.rightSideCrowded)
     #expect(FlexGeometry.solve(rightEdge: .nan, center: 720, screenLeft: 0, minimum: 220, maximum: 500) == nil)
-    #expect(FlexGeometry.solve(rightEdge: 100, center: 720, screenLeft: 0, minimum: 220, maximum: 500) == nil)
+    #expect(FlexGeometry.solve(rightEdge: 100, center: 720, screenLeft: 0, minimum: 220, maximum: 500)?.width == 1)
     let secondary = try #require(FlexGeometry.solve(rightEdge: -540, center: -720, screenLeft: -1440, minimum: 220, maximum: 1400))
     #expect(secondary.width == 360 && secondary.isCentered)
 }
@@ -252,6 +252,6 @@ private func icon(identifier: String = "stable", label: String = "Old title", le
 
 @Test func flexCapacityRejectsUnusableMeasurements() {
     #expect(FlexSafety.maximumWidth(current: 200, leftmostIcon: .nan, applicationMenuRight: 400) == nil)
-    #expect(FlexSafety.maximumWidth(current: 5, leftmostIcon: 700, applicationMenuRight: 400) == nil)
+    #expect(FlexSafety.maximumWidth(current: 0, leftmostIcon: 700, applicationMenuRight: 400) == nil)
     #expect(FlexSafety.maximumWidth(current: 200, leftmostIcon: 700, applicationMenuRight: 400, margin: -1) == nil)
 }

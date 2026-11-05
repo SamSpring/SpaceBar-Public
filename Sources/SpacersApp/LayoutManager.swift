@@ -200,7 +200,8 @@ final class LayoutManager {
         var configuration = owner.configuration
         for index in configuration.items.indices where configuration.items[index].kind == .flexSpacer {
             let item = configuration.items[index]
-            configuration.items[index].width = owner.controllers[item.id].map { Double($0.statusItem.length) } ?? item.width
+            let runtimeWidth = owner.controllers[item.id].map { Double($0.statusItem.length) } ?? item.width
+            configuration.items[index].width = StatusItemSizing.savedFlexWidth(from: runtimeWidth)
         }
         let snapshot = MenuBarLayout(name: name, configuration: configuration,
                                      displays: screens.map(\.display), icons: icons)

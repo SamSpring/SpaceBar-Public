@@ -1,6 +1,7 @@
 import AppKit
 import ServiceManagement
 import SpacersCore
+import SpaceBarUpdates
 
 @MainActor
 final class ManagementWindow: NSWindowController, NSWindowDelegate {
@@ -26,6 +27,7 @@ final class ManagementWindow: NSWindowController, NSWindowDelegate {
     private let saved = NSTextField(labelWithString: "")
     private let export = NSButton(title: "Export Settings…", target: nil, action: nil)
     private let updates = NSButton(title: "Check for Updates…", target: nil, action: nil)
+    private let coffee = NSButton(title: SpaceBarSupport.buttonTitle, target: nil, action: nil)
     private let scroll = NSScrollView()
     private var firstRefresh = true
 
@@ -107,7 +109,7 @@ final class ManagementWindow: NSWindowController, NSWindowDelegate {
         spacerSection.addArrangedSubview(spacerList)
         spacerList.widthAnchor.constraint(equalTo: spacerSection.widthAnchor).isActive = true
         configureSection(flexSection, title: "Flex Spacer")
-        let flexNote = NSTextField(wrappingLabelWithString: "While paused, Width sizes the spacer on release. Center then adjusts in both directions as icons change, using a separate Minimum gap. Arrange shrinks it for ⌘-dragging. Accessibility is needed for growth and centering.")
+        let flexNote = NSTextField(wrappingLabelWithString: "While paused, Width sizes the spacer on release. Center adjusts in both directions using a separate Minimum gap. If right-hand icons cross the display center, the gap temporarily collapses to 1 pt. Arrange shrinks it for ⌘-dragging. Accessibility is needed for growth and centering.")
         flexNote.font = .systemFont(ofSize: 11); flexNote.textColor = .secondaryLabelColor
         flexSection.addArrangedSubview(flexNote)
         flexNote.widthAnchor.constraint(equalTo: flexSection.widthAnchor).isActive = true
@@ -149,8 +151,9 @@ final class ManagementWindow: NSWindowController, NSWindowDelegate {
         approval.action = #selector(openLoginSettings)
         approval.bezelStyle = .rounded
         let loginRow = NSStackView(views: [login, approval])
-        loginRow.spacing = 8
+        loginRow.spacing = 8; loginRow.alignment = .centerY
         root.addArrangedSubview(loginRow)
+        loginRow.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
         export.target = self
         export.action = #selector(exportSettings)
         export.bezelStyle = .rounded
@@ -158,6 +161,23 @@ final class ManagementWindow: NSWindowController, NSWindowDelegate {
         updates.action = #selector(checkUpdates)
         updates.bezelStyle = .rounded
         updates.toolTip = owner.updateCoordinator.updateDescription
+        coffee.target = self; coffee.action = #selector(openSupport)
+        coffee.bezelStyle = .rounded
+        coffee.toolTip = "Support SpaceBar on Ko-fi. Completely optional."
+        let supportCopy = NSStackView(); supportCopy.orientation = .vertical; supportCopy.alignment = .leading; supportCopy.spacing = 3
+        let supportTitle = NSTextField(labelWithString: "Enjoying SpaceBar?")
+        supportTitle.font = .systemFont(ofSize: 13, weight: .medium)
+        let supportNote = NSTextField(labelWithString: "A coffee helps keep it free.")
+        supportNote.font = .systemFont(ofSize: 11); supportNote.textColor = .secondaryLabelColor
+        supportCopy.addArrangedSubview(supportTitle); supportCopy.addArrangedSubview(supportNote)
+        let supportHeading = NSStackView(views: [SupportArtwork.view(size: 36), supportCopy])
+        supportHeading.spacing = 10; supportHeading.alignment = .centerY
+        loginRow.addArrangedSubview(NSView())
+        loginRow.addArrangedSubview(supportHeading)
+        root.setCustomSpacing(8, after: loginRow)
+        let supportRow = NSStackView(views: [NSView(), coffee])
+        supportRow.spacing = 10; supportRow.alignment = .centerY
+        root.addArrangedSubview(supportRow); supportRow.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
         let footer = NSStackView(views: [export, updates, NSView(), NSButton(title: "Quit", target: self, action: #selector(quitApp))])
         footer.spacing = 8
         root.addArrangedSubview(footer)
@@ -303,6 +323,7 @@ final class ManagementWindow: NSWindowController, NSWindowDelegate {
     @objc private func openLoginSettings() { SMAppService.openSystemSettingsLoginItems() }
     @objc private func exportSettings() { coordinator?.exportSettings() }
     @objc private func checkUpdates() { coordinator?.updateCoordinator.check() }
+    @objc private func openSupport() { NSWorkspace.shared.open(SpaceBarSupport.url) }
     @objc private func quitApp() { NSApp.terminate(nil) }
     @objc private func openSettings() {
         guard let owner = coordinator else { return }

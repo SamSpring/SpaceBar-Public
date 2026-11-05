@@ -10,6 +10,9 @@ are uploaded by the app. Public updates use GitHub Pages and GitHub Releases.
 Development previews are compiled without public update access. Settings are saved locally in
 `~/Library/Application Support/MenuBarSpacers/configuration.json`; optional
 Experimental layout backup and restore uses `layouts.json` in that folder.
+The optional update thank-you stores the highest launched build and your opt-out
+locally in a separate `support-notice.json`. It does not contact Ko-fi or any
+other service automatically; only clicking the support button opens the page.
 
 Ordinary spacers and dividers do not need Accessibility permission. The
 optional flex and layout features use it to read system-hosted menu bar

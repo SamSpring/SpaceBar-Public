@@ -4,10 +4,10 @@ A little space in your menu bar. SpaceBar is a free, native Swift/AppKit app
 that adds independent blank spacers, subtle dividers, and one flexible gap.
 Hold **Command (⌘)** and drag an item to arrange it.
 
-**[Download SpaceBar 2.4.1 for Mac](https://github.com/SamSpring/SpaceBar-Public/releases/download/v2.4.1/SpaceBar-2.4.1-arm64.zip)**
+**[Download SpaceBar 2.4.2 for Mac](https://github.com/SamSpring/SpaceBar-Public/releases/download/v2.4.2/SpaceBar-2.4.2-arm64.zip)**
 — Developer ID signed and Apple notarized. Visit the
 [SpaceBar website](https://samspring.github.io/SpaceBar-Public/) or
-[release page](https://github.com/SamSpring/SpaceBar-Public/releases/tag/v2.4.1).
+[release page](https://github.com/SamSpring/SpaceBar-Public/releases/tag/v2.4.2).
 
 ## Requirements
 
@@ -33,6 +33,8 @@ Hold **Command (⌘)** and drag an item to arrange it.
    The optional **Keep centered when left icons overflow** checkbox lets macOS
    hide leftmost icons to make room for centering. It is off for existing
    configurations until selected. Hidden icons' internal order cannot be verified.
+   When right-hand icons reach the display center, the flex spacer temporarily
+   collapses to 1 pt plus native macOS padding, retaining your normal minimum.
 5. Item settings save automatically. Optional **Layout Backup & Restore** is
    **Experimental**. Saving creates a separate named snapshot; restoring first
    saves a recovery snapshot. Only visible, identifiable icons can be restored;
@@ -81,6 +83,14 @@ events only during an explicit restore. **Open Accessibility Settings…**
 opens System Settings when clicked; permission checks do not prompt or grant
 access automatically. Exported settings and layouts can reveal app names or
 item identities; review them before sharing. See [Privacy](docs/PRIVACY.md).
+
+## Optional support
+
+Settings has an illustrated **Buy me a coffee** button. Existing users can see
+a small thank-you once after adopting this feature or launching a newer update.
+**Not now** dismisses it; **Don’t show this after updates** turns it off.
+Fresh installations and ordinary relaunches stay quiet. The Ko-fi page opens
+only when its button is clicked. Support is optional and unlocks no features.
 
 ## Build and contribute
 

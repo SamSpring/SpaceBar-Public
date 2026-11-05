@@ -1,3 +1,18 @@
+# SpaceBar 2.4.2 — flex fallback and optional support
+
+- Collapse the flex spacer to a temporary 1 pt when right-hand icons reach or cross the display center, while keeping Center enabled and your normal minimum gap saved. macOS adds its own small item padding.
+- Keep recovery from that temporary width compatible with normal settings and saved layouts.
+- Add an illustrated **Buy me a coffee** button in Settings, linked to the existing optional Ko-fi page.
+- Show a small, dismissible thank-you once after adopting this feature or successfully launching a newer update. **Not now** dismisses it; **Don’t show this after updates** turns it off. Fresh installations and ordinary relaunches stay quiet. The support page opens only when you click its button.
+
+Your existing spacers, dividers, saved layouts and settings remain compatible. Updates are manual; automatic checks and downloads remain off.
+
+macOS controls placement and capacity. The temporary collapse cannot move right-hand icons themselves away from the center. Natural expansion after pressure clears, overnight sleep/wake, extreme crowding and other hardware are not fully validated. Optional layout backup and restore remains Experimental.
+
+Apple silicon · macOS 27.0 or later. Copyright © 2026 Samuel Aviv / SamSpring. MIT license.
+
+---
+
 # SpaceBar 2.4.1 — flex centering improvements
 
 - Apply a permitted centering adjustment in one step instead of repeated small growth steps.

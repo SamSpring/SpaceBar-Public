@@ -28,17 +28,29 @@ public struct FlexSolution: Equatable, Sendable {
 }
 
 public enum FlexGeometry {
+    public static let emergencyWidth = 1.0
+
     /// The right edge follows the right-hand icon group. Changing width moves
     /// only the left edge: R - width / 2 = the fixed display center.
     public static func solve(rightEdge: Double, center: Double, screenLeft: Double,
-                             minimum: Double, maximum: Double, protectedMinimum: Double = 6) -> FlexSolution? {
-        guard [rightEdge, center, screenLeft, minimum, maximum, protectedMinimum].allSatisfy(\.isFinite),
+                             minimum: Double, maximum: Double, protectedMinimum: Double = 6,
+                             emergencyMinimum: Double = emergencyWidth) -> FlexSolution? {
+        guard [rightEdge, center, screenLeft, minimum, maximum, protectedMinimum, emergencyMinimum].allSatisfy(\.isFinite),
               rightEdge > screenLeft, minimum >= 6, protectedMinimum >= 6,
-              maximum >= max(minimum, protectedMinimum) else { return nil }
+              emergencyMinimum >= 1, emergencyMinimum <= minimum,
+              maximum >= emergencyMinimum else { return nil }
         let wanted = 2 * (rightEdge - center)
         let available = min(maximum, rightEdge - screenLeft)
+        // A negative target cannot be centered by any positive gap. Reclaim
+        // its space instead of retaining a large width while waiting. The
+        // caller includes native host padding in this temporary minimum.
+        if rightEdge <= center {
+            guard available >= emergencyMinimum else { return nil }
+            return FlexSolution(width: emergencyMinimum, isCentered: false,
+                rightSideCrowded: true, isMinimumLimited: true)
+        }
         let lower = max(minimum, protectedMinimum)
-        guard available >= lower else { return nil }
+        guard maximum >= lower, available >= lower else { return nil }
         let width = min(available, max(lower, wanted)).rounded()
         return FlexSolution(width: width, isCentered: abs(wanted - width) <= 1,
                             rightSideCrowded: wanted < protectedMinimum,
@@ -74,7 +86,7 @@ public enum FlexSafety {
     public static func maximumWidth(current: Double, leftmostIcon: Double,
                                     applicationMenuRight: Double, margin: Double = 24) -> Double? {
         guard [current, leftmostIcon, applicationMenuRight, margin].allSatisfy(\.isFinite),
-              current >= 6, margin >= 0 else { return nil }
+              current >= 1, margin >= 0 else { return nil }
         return current + max(0, leftmostIcon - applicationMenuRight - margin)
     }
 }
@@ -87,7 +99,7 @@ public struct FlexGrowthLimit: Sendable {
     public let normalizedLeft: Double
     public let referenceRightEdge: Double?
     public init?(current: Double, leftmostIcon: Double, rightEdge: Double? = nil) {
-        guard current.isFinite, current >= 6, leftmostIcon.isFinite,
+        guard current.isFinite, current >= 1, leftmostIcon.isFinite,
               (leftmostIcon + current).isFinite,
               rightEdge?.isFinite != false else { return nil }
         acceptedWidth = current
@@ -102,7 +114,7 @@ public struct FlexGrowthLimit: Sendable {
         return referenceRightEdge.map { abs($0 - rightEdge) <= 2 } ?? true
     }
     public func maximumWidth(current: Double, leftmostIcon: Double) -> Double? {
-        guard current.isFinite, current >= 6, leftmostIcon.isFinite else { return nil }
+        guard current.isFinite, current >= 1, leftmostIcon.isFinite else { return nil }
         let available = acceptedWidth + leftmostIcon + current - normalizedLeft
         guard available.isFinite else { return nil }
         return max(current, available)
